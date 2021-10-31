@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  email-wf-us-east-1
+  
+Globals:
+  Function:
+    Runtime: java11
+    MemorySize: 512
+    Timeout: 20
+    Environment:
+      Variables:
+        EMAIL_BUCKET: !Sub ${AWS::StackName}-${AWS::AccountId}-incoming-email
+        ATTACHMENT_BUCKET: !Sub ${AWS::StackName}-${AWS::AccountId}-attachment
+        RESULT_BUCKET: !Sub ${AWS::StackName}-${AWS::AccountId}-result
+
+Resources:
+  ExtractAttachmentDLQ:
+    Type: AWS::SNS::Topic
+  ConvertImageDLQ:
+    Type: AWS::SNS::Topic
+  EmailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-incoming-email
+  AttachmentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-attachment
+  ResultBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-result
+
+  ExtractAttachmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ProcessEmailFunctions
+      Handler: email.wf.ExtractAttachmentLambda::handle
+      Runtime: java11   # TODO: delete
+      MemorySize: 512
+      DeadLetterQueue:
+        Type: SNS
+        TargetArn: !Ref ExtractAttachmentDLQ
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-incoming-email
+        - S3WritePolicy:
+            BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-attachment
+      Environment:
+        Variables:
+          PARAM1: VALUE
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket: !Ref EmailBucket
+            Events: s3:ObjectCreated:*
+  ConvertImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ProcessEmailFunctions
+      Handler: email.wf.ImageConvLambda::handle
+      Runtime: java11
+      MemorySize: 512
+      DeadLetterQueue:
+        Type: SNS
+        TargetArn: !Ref ConvertImageDLQ
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-attachment
+        - S3WritePolicy:
+            BucketName: !Sub ${AWS::StackName}-${AWS::AccountId}-result
+      Environment:
+        Variables:
+          PARAM1: VALUE
+      Events:
+        S3Event:
+          Type: S3
+          Properties:
+            Bucket: !Ref AttachmentBucket
+            Events: s3:ObjectCreated:*
